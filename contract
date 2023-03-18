@@ -1,0 +1,67 @@
+pragma solidity ^0.8.0;
+
+contract Crowdfunding {
+    address public owner;
+    uint256 public fundingGoal;
+    uint256 public totalFundsRaised;
+    uint256 public deadline;
+    
+    mapping(address => uint256) public donors;
+
+    event DonationReceived(address indexed donor, uint256 amount);
+    event GoalReached(uint256 totalFundsRaised);
+    event FundsWithdrawn(address indexed recipient, uint256 amount);
+    event RefundsProcessed();
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the owner can call this function.");
+        _;
+    }
+
+    constructor(uint256 _fundingGoal, uint256 _durationInDays) {
+        owner = msg.sender;
+        fundingGoal = _fundingGoal;
+        deadline = block.timestamp + (_durationInDays * 1 days);
+    }
+
+    function donate() public payable {
+        require(block.timestamp < deadline, "Crowdfunding has ended.");
+        require(totalFundsRaised < fundingGoal, "Funding goal has been reached.");
+        
+        donors[msg.sender] += msg.value;
+        totalFundsRaised += msg.value;
+
+        emit DonationReceived(msg.sender, msg.value);
+        
+        if (totalFundsRaised >= fundingGoal) {
+            emit GoalReached(totalFundsRaised);
+        }
+    }
+
+    function withdrawFunds() public onlyOwner {
+        require(block.timestamp >= deadline, "Crowdfunding is still ongoing.");
+        require(totalFundsRaised >= fundingGoal, "Funding goal has not been reached.");
+
+        uint256 amount = address(this).balance;
+        (bool success, ) = owner.call{value: amount}("");
+        require(success, "Failed to withdraw funds.");
+
+        emit FundsWithdrawn(owner, amount);
+    }
+
+    function processRefunds() public onlyOwner {
+        require(block.timestamp >= deadline, "Crowdfunding is still ongoing.");
+        require(totalFundsRaised < fundingGoal, "Funding goal has been reached.");
+
+        for (address donorAddress in donors) {
+            uint256 refundAmount = donors[donorAddress];
+            if (refundAmount > 0) {
+                (bool success, ) = donorAddress.call{value: refundAmount}("");
+                require(success, "Failed to process refund.");
+                donors[donorAddress] = 0;
+            }
+        }
+
+        emit RefundsProcessed();
+    }
+}
